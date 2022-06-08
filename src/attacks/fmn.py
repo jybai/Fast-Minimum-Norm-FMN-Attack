@@ -27,6 +27,8 @@ class FMNAttackLp(MinimizationAttack):
             self, *, steps: int = 10,
             max_stepsize: float = 1.0,
             min_stepsize: float = None,
+            max_eps_stepsize: float = 1.0,
+            min_eps_stepsize: float = None,
             gamma: float = 0.05,
             restarts: int = 0,
             init_attack: Optional[MinimizationAttack] = None,
@@ -56,11 +58,16 @@ class FMNAttackLp(MinimizationAttack):
         """
         self.steps = steps
         self.max_stepsize = max_stepsize
+        self.max_eps_stepsize = max_eps_stepsize
         self.init_attack = init_attack
         if min_stepsize is not None:
             self.min_stepsize = min_stepsize
         else:
             self.min_stepsize = max_stepsize / 100
+        if min_eps_stepsize is not None:
+            self.min_eps_stepsize = min_eps_stepsize
+        else:
+            self.min_eps_stepsize = max_eps_stepsize / 100
         self.binary_search_steps = binary_search_steps
         self.restarts = restarts
         self.gamma = gamma
@@ -169,6 +176,10 @@ class FMNAttackLp(MinimizationAttack):
                     self.min_stepsize + (self.max_stepsize - self.min_stepsize) * (
                     1 + math.cos(math.pi * i / self.steps)) / 2
             )
+            eps_stepsize = (
+                    self.min_eps_stepsize + (self.max_eps_stepsize - self.min_eps_stepsize) * (
+                    1 + math.cos(math.pi * i / self.steps)) / 2
+            )
             gamma = (
                     0.001 + (self.gamma - 0.001) * (
                     1 + math.cos(math.pi * (i / self.steps))) / 2
@@ -187,6 +198,7 @@ class FMNAttackLp(MinimizationAttack):
             best_delta = ep.where(atleast_kd(is_both, x.ndim), delta, best_delta)
 
             # update epsilon
+            '''
             if self.p != 0:
                 distance_to_boundary = abs(loss_batch) / ep.norms.lp(flatten(gradients), p=self.dual, axis=-1)
                 epsilon = ep.where(is_adversarial,
@@ -201,7 +213,12 @@ class FMNAttackLp(MinimizationAttack):
                                               ep.norms.lp(flatten(best_delta), p=self.p, axis=-1)),
                                    ep.maximum(epsilon + 1, (epsilon * (1 + gamma)).astype(int).astype(epsilon.dtype)))
                 epsilon = ep.maximum(0, epsilon).astype(epsilon.dtype)
-
+            '''
+            dsqL_deps = 2 * loss_batch * (gradients * delta).sum((1,2,3))
+            # x = x0 + delta * e -> dx/de = delta
+            # d(L^2)/de = 2*L * dL/de = 2*L * dL/dx * dx/de =  2*L * dL/dx * delta
+            epsilon = epsilon + self.normalize(dsqL_deps, x=x, bounds=model.bounds) * eps_stepsize
+            
             # clip epsilon
             epsilon = ep.minimum(epsilon, worst_norm)
 
