@@ -143,7 +143,8 @@ class FMNAttackLp(MinimizationAttack):
             delta = starting_points - x
         else:
             # start from x0
-            delta = ep.zeros_like(x)
+            # delta = ep.zeros_like(x)
+            delta = ep.normal(x, shape=x.shape) * 1e-9
 
         if classes.shape != (N,):
             name = "target_classes" if targeted else "labels"
@@ -214,9 +215,10 @@ class FMNAttackLp(MinimizationAttack):
                                    ep.maximum(epsilon + 1, (epsilon * (1 + gamma)).astype(int).astype(epsilon.dtype)))
                 epsilon = ep.maximum(0, epsilon).astype(epsilon.dtype)
             '''
-            dsqL_deps = 2 * loss_batch * (gradients * delta).sum((1,2,3))
-            # x = x0 + delta * e -> dx/de = delta
-            # d(L^2)/de = 2*L * dL/de = 2*L * dL/dx * dx/de =  2*L * dL/dx * delta
+            normed_delta = ep.where(delta == 0, delta, delta / lp.reshape((-1, 1, 1, 1)))
+            dsqL_deps = 2 * loss_batch * (gradients * normed_delta).sum((1,2,3))
+            # x = x0 + normed_delta * e -> dx/de = normed_delta
+            # d(L^2)/de = 2*L * dL/de = 2*L * dL/dx * dx/de =  2*L * dL/dx * normed_delta
             epsilon = epsilon + self.normalize(dsqL_deps, x=x, bounds=model.bounds) * eps_stepsize
             
             # clip epsilon
