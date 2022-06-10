@@ -33,6 +33,7 @@ class FMNAttackLp(MinimizationAttack):
             restarts: int = 0,
             init_attack: Optional[MinimizationAttack] = None,
             binary_search_steps: int = 10,
+            adaptive_e_grad: bool = False,
     ):
         """
 
@@ -73,6 +74,7 @@ class FMNAttackLp(MinimizationAttack):
         self.gamma = gamma
 
         self.p = self.distance.p
+        self.adaptive_e_grad = adaptive_e_grad
 
     def run(
             self,
@@ -216,10 +218,16 @@ class FMNAttackLp(MinimizationAttack):
                 epsilon = ep.maximum(0, epsilon).astype(epsilon.dtype)
             '''
             normed_delta = ep.where(delta == 0, delta, delta / lp.reshape((-1, 1, 1, 1)))
-            dsqL_deps = 2 * loss_batch * (gradients * normed_delta).sum((1,2,3))
-            # x = x0 + normed_delta * e -> dx/de = normed_delta
-            # d(L^2)/de = 2*L * dL/de = 2*L * dL/dx * dx/de =  2*L * dL/dx * normed_delta
-            epsilon = epsilon + self.normalize(dsqL_deps, x=x, bounds=model.bounds) * eps_stepsize
+            
+            if self.adaptive_e_grad:
+                # d(|L|^p)/de = p*|L|^{p-1} * d|L|/de = p*|L|^{p-1} * |L|/L * dL/de = p*|L|^{p}/L * dL/dx * normed_delta
+                dsqL_deps = self.p * (ep.abs(loss_batch)**self.p) / loss_batch * (gradients * normed_delta).sum((1,2,3))
+            else:
+                dsqL_deps = 2 * loss_batch * (gradients * normed_delta).sum((1,2,3))
+                # x = x0 + normed_delta * e -> dx/de = normed_delta
+                # d(L^2)/de = 2*L * dL/de = 2*L * dL/dx * dx/de =  2*L * dL/dx * normed_delta
+            
+            epsilon = epsilon + dsqL_deps * eps_stepsize
             
             # clip epsilon
             epsilon = ep.minimum(epsilon, worst_norm)
